@@ -1,0 +1,8 @@
+Amazon/
+resource/glove/
+reinforce_log/
+.idea/
+__pycache__/
+Data/
+pic/
+t.py

@@ -468,7 +468,7 @@ if __name__ == '__main__':
         opt = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-2)  # weight_decay: 1e-2
 
         # 构造uu ii矩阵
-        ui_matrix = hetero_text_graph.adjacency_matrix(etype='buy-by').to_dense()
+        ui_matrix = hetero_text_graph.adjacency_matrix(etype='buy').to_dense()
         iu_matrix = ui_matrix.transpose(0, 1)
         uu_con_matrix = torch.mm(ui_matrix, iu_matrix)
         ii_con_matrix = torch.mm(iu_matrix, ui_matrix)

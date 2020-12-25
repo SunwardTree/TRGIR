@@ -93,6 +93,8 @@ if __name__ == '__main__':
     parser.add_argument("-d", dest="data_name", type=str, default='Digital_Music')
     # mf sa sg
     parser.add_argument("-dm", dest="data_method", type=str, default='sg')
+    # glove sbert
+    parser.add_argument("-stm", dest="s_t_emb_method", type=str, default='sbert')
     parser.add_argument("-c", dest="cluster_num", type=int, default=5)
     parser.add_argument("-t_p", dest="test_percent", type=float, default=0.1)
     parser.add_argument("-k", dest="max_k", type=int, default=20)
@@ -101,7 +103,10 @@ if __name__ == '__main__':
 
     data_name = args.data_name
     data_method = args.data_method
-    save_root = './Data/' + data_name + '/' + data_method + '/'
+    s_t_emb_method = args.s_t_emb_method
+    if data_method == 'mf':
+        s_t_emb_method = ''
+    save_root = './Data/' + data_name + '/' + data_method + '/' + s_t_emb_method + '/'
     test_percent = args.test_percent
     max_k = args.max_k
 

@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import dgl.function as fn
 import torch.nn as nn
 import random
@@ -67,7 +68,7 @@ class HeteroGCNLayer(nn.Module):
 
 class HeteroGCNNet(nn.Module):
     def __init__(self, G, in_size, hidden_size, out_size,
-                 use_dr_pre, pre_v_dict):
+                 use_dr_pre, pre_v_dict, if_non_active=False):
         super(HeteroGCNNet, self).__init__()
         # Use trainable node embeddings as featureless inputs.
         if use_dr_pre:
@@ -92,11 +93,14 @@ class HeteroGCNNet(nn.Module):
         # create layers
         self.layer1 = HeteroGCNLayer(in_size, hidden_size, G.etypes)
         self.layer2 = HeteroGCNLayer(hidden_size, out_size, G.etypes)
+        self.if_non_active = if_non_active
         self.h_dict = None
 
     def forward(self, G):
         self.h_dict = self.layer1(G, self.embed)
         # print(self.h_dict)
+        if self.if_non_active:
+            self.h_dict = {k: F.leaky_relu(h) for k, h in self.h_dict.items()}
         self.h_dict = self.layer2(G, self.h_dict)
         # print(self.h_dict)
 

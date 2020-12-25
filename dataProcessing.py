@@ -2,11 +2,14 @@
 # http://snap.stanford.edu/data/amazon/productGraph/categoryFiles/
 
 import os
+import math
 import time
+import torch
 import argparse
 import numpy as np
 from tqdm import tqdm
 from util.utils import clean_data
+from sentence_transformers import models, SentenceTransformer
 
 
 def restore_data(d_name: str, save_root, positive_ratings: int, get_true_scale=False):
@@ -216,33 +219,65 @@ def get_glove_dict(glove_dict_path: str):
     return in_glove_dict
 
 
-def get_vector(record_texts_dict: dict, in_glove_dict, embedding_size, stop_word_list: list,
-               record_num: int, save_path):
-    record_embeddings = np.zeros((record_num, embedding_size))
-    t_count = 0
-    # print(item_num)
-    for i in tqdm(range(record_num)):
-        item_emb = np.zeros(embedding_size)
-        try:
-            word_str = str(record_texts_dict[i])
-            word_list = word_str.split(" ")
-            # print(word_list)
-            t_div = 1
-            for word in word_list:
-                if word not in stop_word_list:
-                    try:
-                        word_glove_vector = in_glove_dict[word]
-                        item_emb = item_emb + word_glove_vector
-                    except KeyError:
+def get_vector(record_texts_dict: dict, embedding_size, record_num: int, device,
+               save_path='', s_text_emb_method='glove'):
+    record_embeddings = None
+    if s_text_emb_method == 'glove':
+        print('----glove vector----')
+        stop_word_list = get_stop_word(stop_word_path='./resource/stop_words.txt')
+        glove_dict = get_glove_dict(glove_dict_path='./resource/glove/glove.6B.' + str(embedding_size) + 'd.txt')
+        record_embeddings = np.zeros((record_num, embedding_size))
+        t_count = 0
+        # print(item_num)
+        for i in tqdm(range(record_num)):
+            item_emb = np.zeros(embedding_size)
+            try:
+                word_str = str(record_texts_dict[i])
+                word_list = word_str.split(" ")
+                # print(word_list)
+                t_div = 1
+                for word in word_list:
+                    if word not in stop_word_list:
+                        try:
+                            word_glove_vector = glove_dict[word]
+                            item_emb = item_emb + word_glove_vector
+                        except KeyError:
+                            continue
+                        t_div += 1
+                    else:
                         continue
-                    t_div += 1
-                else:
-                    continue
-            # print(t_div, item_emb, item_emb / t_div)
-            record_embeddings[i] = item_emb / t_div  # normalise
-            t_count += 1
-        except KeyError:
-            continue
+                # print(t_div, item_emb, item_emb / t_div)
+                record_embeddings[i] = item_emb / t_div  # normalise
+                t_count += 1
+            except KeyError:
+                continue
+    elif s_text_emb_method == 'sbert':
+        print('----sentence-bert vector----')
+        # Sentence-BERT:
+        # Sentence Embeddings using Siamese BERT-Networks https://arxiv.org/abs/1908.10084
+        # https://github.com/UKPLab/sentence-transformers
+        # google/bert_uncased_L-2_H-128_A-2(BERT-Tiny)
+        # google/bert_uncased_L-12_H-256_A-4(BERT-Mini)
+        # google/bert_uncased_L-4_H-512_A-8(BERT-Small)
+        # google/bert_uncased_L-8_H-512_A-8(BERT-Medium)
+        # google/bert_uncased_L-12_H-768_A-12(BERT-Base)
+        word_embedding_model = models.BERT('google/bert_uncased_L-12_H-256_A-4', max_seq_length=510)
+        # Apply mean pooling to get one fixed sized sentence vector
+        pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
+        bert_model = SentenceTransformer(modules=[word_embedding_model, pooling_model], device=device)
+        one_req_num = 500
+        record_list = list(record_texts_dict.values())
+        req_times = int(math.ceil(len(record_list) / one_req_num))
+        for ii in tqdm(range(req_times)):
+            if ii == 0:
+                record_embeddings = bert_model.encode(record_list[ii * one_req_num: (ii + 1) * one_req_num])
+            elif ii < req_times - 1:
+                record_embeddings = np.vstack(
+                    (record_embeddings, bert_model.encode(record_list[ii * one_req_num: (ii + 1) * one_req_num])))
+            else:
+                record_embeddings = np.vstack((record_embeddings, bert_model.encode(record_list[ii * one_req_num:])))
+    else:
+        print('Do not support', s_text_emb_method, 'text embedding method.')
     if save_path != '':
         np.save(save_path, record_embeddings)
     return record_embeddings
@@ -269,6 +304,9 @@ if __name__ == '__main__':
     parser.add_argument("-d", dest="data_name", type=str, default='Digital_Music')
     # mf sa sg
     parser.add_argument("-dm", dest="data_method", type=str, default='sg')
+    # glove sbert
+    parser.add_argument("-stm", dest="s_t_emb_method", type=str, default='sbert')
+    parser.add_argument("-active", dest="if_non_active", type=bool, default=True)
     parser.add_argument("-t_p", dest="test_percent", type=float, default=0.1)
     parser.add_argument("-r_b", dest="rating_bound", type=float, default=3)
     parser.add_argument("-k", dest="max_k", type=int, default=20)
@@ -281,17 +319,21 @@ if __name__ == '__main__':
     parser.add_argument("-p", dest="dr_pre_train", type=int, default=1, help='1 is True.')
     parser.add_argument("-u_d", dest="use_des", type=int, default=1, help='1 is True.')
     parser.add_argument("-u_r", dest="use_rev", type=int, default=1, help='1 is True.')
-    parser.add_argument("-gpu_id", dest="gpu_id", type=int, default=-1, help='If use cpu, set -1.')
+    parser.add_argument("-gpu_id", dest="gpu_id", type=int, default=2, help='If use cpu, set -1.')
     args = parser.parse_args()
     print(args)
 
     data_name = args.data_name
     data_method = args.data_method
+    s_t_emb_method = args.s_t_emb_method
+    if data_method == 'mf':
+        s_t_emb_method = ''
+    if_non_active = args.if_non_active
     test_percent = args.test_percent
     rating_bound = args.rating_bound
     epochs = args.epochs
     max_k = args.max_k
-    save_root = './Data/' + data_name + '/' + data_method + '/'
+    save_root = './Data/' + data_name + '/' + data_method + '/' + s_t_emb_method + '/'
     if not os.path.exists(save_root): os.makedirs(save_root)
     graph_in_dim = args.emb_size
     graph_out_dim = args.graph_out_dim
@@ -332,6 +374,10 @@ if __name__ == '__main__':
         new_rev_id += 1
     del old_reviews_dict
 
+    str_dev = "cuda:" + str(gpu_id)
+    device = torch.device(str_dev if (torch.cuda.is_available() and gpu_id >= 0) else "cpu")
+    print('Device:', device)
+
     emb_size = args.emb_size
     if data_method == 'mf':
         from util.utils import mf_with_bias, get_user_vector
@@ -342,22 +388,13 @@ if __name__ == '__main__':
         alpha = 0.5
         _, _, _, des_dict = get_descriptions(data_name, old_item2new)
         # get vectors
-        o_stop_word_list = get_stop_word(stop_word_path='./resource/stop_words.txt')
-        glove_dict = get_glove_dict(glove_dict_path='./resource/glove/glove.6B.' + str(emb_size) + 'd.txt')
-        description_vectors = get_vector(des_dict, glove_dict, emb_size,
-                                         o_stop_word_list, item_num, "")
-        review_vectors = get_vector(reviews_dict, glove_dict, emb_size,
-                                    o_stop_word_list, item_num, "")
+        description_vectors = get_vector(des_dict, emb_size, item_num, device, s_text_emb_method=s_t_emb_method)
+        review_vectors = get_vector(reviews_dict, emb_size, item_num, device, s_text_emb_method=s_t_emb_method)
         item_vectors = alpha * description_vectors + (1 - alpha) * review_vectors
         user_vectors = get_user_vector(user_ir_dict, user_num, item_vectors, emb_size)
     elif data_method == 'sg':
         import dgl
-        import torch
         from util.utils import HeteroGCNNet
-
-        str_dev = "cuda:" + str(gpu_id)
-        device = torch.device(str_dev if (torch.cuda.is_available() and gpu_id >= 0) else "cpu")
-        print('Device:', device)
 
         ur_pair, ru_pair = [], []
         ir_pair, ri_pair = [], []
@@ -386,27 +423,18 @@ if __name__ == '__main__':
 
         if use_des and use_rev:
             print('graph_in_dim reset as', graph_in_dim)
-            print('----glove vector----')
-            o_stop_word_list = get_stop_word(stop_word_path='./resource/stop_words.txt')
-            glove_dict = get_glove_dict(glove_dict_path='./resource/glove/glove.6B.' + str(emb_size) + 'd.txt')
-            des_vectors = get_vector(descriptions_dict, glove_dict, emb_size, o_stop_word_list, des_num, "")
-            rev_vectors = get_vector(reviews_dict, glove_dict, emb_size, o_stop_word_list, rev_num, "")
+            des_vectors = get_vector(descriptions_dict, emb_size, des_num, device, s_text_emb_method=s_t_emb_method)
+            rev_vectors = get_vector(reviews_dict, emb_size, rev_num, device, s_text_emb_method=s_t_emb_method)
             pre_vec_dict = {'description': des_vectors, 'review': rev_vectors}
             graph_in_dim = pre_vec_dict['description'].shape[1]
         elif use_des:
             print('graph_in_dim reset as', graph_in_dim)
-            print('----glove vector----')
-            o_stop_word_list = get_stop_word(stop_word_path='./resource/stop_words.txt')
-            glove_dict = get_glove_dict(glove_dict_path='./resource/glove/glove.6B.' + str(emb_size) + 'd.txt')
-            des_vectors = get_vector(descriptions_dict, glove_dict, emb_size, o_stop_word_list, des_num, "")
+            des_vectors = get_vector(descriptions_dict, emb_size, des_num, device, s_text_emb_method=s_t_emb_method)
             pre_vec_dict = {'description': des_vectors}
             graph_in_dim = pre_vec_dict['description'].shape[1]
         elif use_rev:
             print('graph_in_dim reset as', graph_in_dim)
-            print('----glove vector----')
-            o_stop_word_list = get_stop_word(stop_word_path='./resource/stop_words.txt')
-            glove_dict = get_glove_dict(glove_dict_path='./resource/glove/glove.6B.' + str(emb_size) + 'd.txt')
-            rev_vectors = get_vector(reviews_dict, glove_dict, emb_size, o_stop_word_list, rev_num, "")
+            rev_vectors = get_vector(reviews_dict, emb_size, rev_num, device, s_text_emb_method=s_t_emb_method)
             pre_vec_dict = {'review': rev_vectors}
             graph_in_dim = pre_vec_dict['review'].shape[1]
         else:
@@ -458,14 +486,14 @@ if __name__ == '__main__':
         elif self_loop:
             graph_dict[('user', 'u-self-loop', 'user')] = graph_info['uu_pair']
             graph_dict[('item', 'i-self-loop', 'item')] = graph_info['ii_pair']
-        hetero_text_graph = dgl.heterograph(graph_dict)
+        hetero_text_graph = dgl.heterograph(graph_dict, device=device)
         print(hetero_text_graph)
 
         model = HeteroGCNNet(hetero_text_graph, in_size=graph_in_dim, hidden_size=graph_hidden_dim,
-                             out_size=graph_out_dim,
-                             use_dr_pre=dr_pre_train, pre_v_dict=pre_vec_dict)
+                             out_size=graph_out_dim, use_dr_pre=dr_pre_train,
+                             pre_v_dict=pre_vec_dict, if_non_active=if_non_active)
         model.to(device)
-        opt = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-2)  # weight_decay: 1e-2
+        opt = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-1)  # weight_decay: 1e-1
 
         # 构造uu ii矩阵
         ui_matrix = hetero_text_graph.adjacency_matrix(etype='buy').to_dense()
@@ -482,37 +510,41 @@ if __name__ == '__main__':
             tuid = np.random.randint(user_num)
             pos_batch_users = get_x_pairs(uu_con_matrix, tuid, user_num, b_num, if_pos=True)
             neg_batch_users = get_x_pairs(uu_con_matrix, tuid, user_num, b_num, if_pos=False)
+
             p_u_value = torch.zeros(graph_out_dim).to(device)
             u_emb = model.lookup_emb('user', tuid)
-            for (uid, p_uid, uur) in pos_batch_users:
+            for (uid, p_uid, _) in pos_batch_users:
                 p_u_emb = model.lookup_emb('user', p_uid)
-                p_u_value += torch.pow(u_emb - p_u_emb, 2) * uur
+                p_u_value += torch.pow(u_emb - p_u_emb, 2)
             n_u_value = torch.zeros(graph_out_dim).to(device)
             for (uid, n_uid) in neg_batch_users:
                 n_u_emb = model.lookup_emb('user', n_uid)
                 n_u_value += torch.pow(u_emb - n_u_emb, 2)
             u_loss = (p_u_value / b_num).sum() - (n_u_value / b_num).sum()
+            # print('u_loss:', u_loss)
 
             tiid = np.random.randint(item_num)
             pos_batch_items = get_x_pairs(ii_con_matrix, tiid, item_num, b_num, if_pos=True)
             neg_batch_items = get_x_pairs(ii_con_matrix, tiid, item_num, b_num, if_pos=False)
             p_i_value = torch.zeros(graph_out_dim).to(device)
             i_emb = model.lookup_emb('item', tiid)
-            for (iid, p_iid, iir) in pos_batch_items:
+            for (iid, p_iid, _) in pos_batch_items:
                 p_i_emb = model.lookup_emb('item', p_iid)
-                p_i_value += torch.pow(i_emb - p_i_emb, 2) * iir
+                p_i_value += torch.pow(i_emb - p_i_emb, 2)
             n_i_value = torch.zeros(graph_out_dim).to(device)
             for (iid, n_iid) in neg_batch_items:
                 n_i_emb = model.lookup_emb('item', n_iid)
                 n_i_value += torch.pow(i_emb - n_i_emb, 2)
             i_loss = (p_i_value / b_num).sum() - (n_i_value / b_num).sum()
+            # print('i_loss:', i_loss)
 
             loss = u_loss + i_loss
+            # print('loss:', loss)
             loss.backward()
             opt.step()
 
             if i_e % 10 == 0:
-                str_loss = 'Epoch %3d: Loss %.4f' % (i_e, u_loss.item())
+                str_loss = 'Epoch %3d: Loss %.4f' % (i_e, loss.item())
                 print(str_loss)
 
         item_vectors = model.lookup_emb_list('item', need_all=True).cpu().detach().numpy()

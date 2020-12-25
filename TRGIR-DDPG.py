@@ -137,11 +137,12 @@ class DDPG(object):
 
 
 class RlProcess:
-    def __init__(self, the_data_path, the_data_name, data_method, epochs, state_num, action_num, cand_size,
+    def __init__(self, the_data_path, the_data_name, data_method, ste_method, epochs, state_num, action_num, cand_size,
                  one_u_steps, test_top_k: list, is_use_history=True):
         self.the_data_path = the_data_path
         self.the_data_name = the_data_name
         self.data_method = data_method
+        self.ste_method = ste_method
         self.epochs = epochs
         self.state_num = state_num
         self.action_num = action_num
@@ -259,6 +260,7 @@ class RlProcess:
         if not os.path.exists('./reinforce_log/'):
             os.makedirs('./reinforce_log/')
         reinforce_log = open('./reinforce_log/' + self.the_data_name + '_ddpg_cluster-' + self.data_method
+                             + '-' + self.ste_method
                              + '_cluster' + str(self.user_label_num + 1)
                              + '_state' + str(self.state_num)
                              + '_action' + str(self.action_num) + '_'
@@ -318,7 +320,8 @@ class RlProcess:
                 the_saver_path = './reinforce_log/' + self.the_data_name + '_ddpg_cluster' \
                                  + '/state' + str(self.state_num) \
                                  + '/action' + str(self.action_num) \
-                                 + '/' + self.data_method + '/c' + str(i)
+                                 + '/' + self.data_method + '-' + self.ste_method \
+                                 + '/c' + str(i)
                 meta_path = the_saver_path + '/model.meta'
                 if self.is_use_history:
                     if os.path.exists(meta_path) \
@@ -530,6 +533,10 @@ class RlProcess:
 if __name__ == '__main__':
     # mf sa sg
     data_method = 'sg'
+    # glove sbert
+    s_t_emb_method = 'sbert'
+    if data_method == 'mf':
+        s_t_emb_method = ''
     # 'Digital_Music' 'Beauty' 'Clothing_Shoes_and_Jewelry'
     the_data_name = 'Digital_Music'
     action_num = 10  # Number of items in the action
@@ -540,10 +547,11 @@ if __name__ == '__main__':
     epochs = 3  # Number of training rounds
     positive_percent = 0.1  # alpha, positive items percent of the candidate set
 
-    the_data_path = './Data/' + the_data_name + '/' + data_method + '/'
+    the_data_path = './Data/' + the_data_name + '/' + data_method + '/' + s_t_emb_method + '/'
     rl_model = RlProcess(the_data_path=the_data_path,
                          the_data_name=the_data_name,
                          data_method=data_method,
+                         ste_method=s_t_emb_method,
                          epochs=epochs,
                          state_num=state_num,
                          action_num=action_num,

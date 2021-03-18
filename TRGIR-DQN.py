@@ -370,7 +370,7 @@ class RlProcess:
                 cluster_saver = tf.train.Saver()
                 the_saver_path = './reinforce_log/' + the_data_name + '_dqn_cluster' \
                                  + '/state' + str(self.state_num)  \
-                                 + '/' + self.data_method + '-' + self.ste_method
+                                 + '/' + self.data_method + '-' + self.ste_method \
                                  + '/c' + str(i)
                 meta_path = the_saver_path + '/model.meta'
                 if self.is_use_history:
@@ -622,7 +622,7 @@ if __name__ == '__main__':
     # mf sa sg
     data_method = 'sg'
     # glove sbert
-    s_t_emb_method = 'sbert'
+    s_t_emb_method = 'glove'
     if data_method == 'mf':
         s_t_emb_method = ''
     # 'Digital_Music' 'Beauty' 'Clothing_Shoes_and_Jewelry'
@@ -635,11 +635,11 @@ if __name__ == '__main__':
     epochs = 3  # Number of training rounds
     positive_percent = 0.1  # alpha, positive items percent of the candidate set
 
-    the_data_path = './Data/' + the_data_name + '/' + data_method + '/' + '/' + s_t_emb_method + '/'
+    the_data_path = './Data/' + the_data_name + '/' + data_method + '/' + s_t_emb_method + '/'
     rl_model = RlProcess(the_data_path=the_data_path,
                          the_data_name=the_data_name,
-                         ste_method=self.ste_method,
-                         data_method=s_t_emb_method,
+                         ste_method=s_t_emb_method,
+                         data_method=data_method,
                          epochs=epochs,
                          state_num=state_num,
                          cand_size=cand_size,

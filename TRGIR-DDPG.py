@@ -534,7 +534,7 @@ if __name__ == '__main__':
     # mf sa sg
     data_method = 'sg'
     # glove sbert
-    s_t_emb_method = 'sbert'
+    s_t_emb_method = 'glove'
     if data_method == 'mf':
         s_t_emb_method = ''
     # 'Digital_Music' 'Beauty' 'Clothing_Shoes_and_Jewelry'
